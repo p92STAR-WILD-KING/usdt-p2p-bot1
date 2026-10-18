@@ -10,8 +10,7 @@ BOT_TOKEN = "8717353251:AAE_FDKyqxSC3RzvJepJTih6H2K8Y3H9Q-Q"
 
 # Aapki Numeric Admin Chat ID
 ADMIN_CHAT_ID = 7218404735  
-
-ADMIN_USERNAME = "Qayoom_pitafi05"  # Support link ke liye
+ADMIN_USERNAME = "Qayoom_pitafi05"
 
 # Deposit Accounts (Owner: Munawar Ali)
 JAZZCASH_NO = "03299202072"
@@ -23,9 +22,9 @@ SADAPAY_NAME = "Munawar Ali"
 BSC_BEP20_WALLET = "0x90a2efbc5799c9d41f134d0ea092be6001181382"
 TRX_TRC20_WALLET = "TFprkhMJS2jtUGQ6kp6GHomUCwAzWjcPFd"
 
-# Exchange Rates (PKR)
-BUY_RATE = 290.0
-SELL_RATE = 281.0
+# Updated Exchange Rates (PKR)
+BUY_RATE = 290.22
+SELL_RATE = 281.50
 
 bot = telebot.TeleBot(BOT_TOKEN)
 user_states = {}
@@ -102,52 +101,24 @@ def handle_callbacks(call):
         bot.send_message(chat_id, rates_msg, reply_markup=get_main_keyboard())
 
     elif call.data == "buy_usdt":
-        user_states[chat_id] = "WAITING_BUY_PROOF"
-        buy_text = (
+        user_states[chat_id] = {"step": "WAITING_BUY_AMOUNT"}
+        msg = (
             f"💵 BUY USDT ORDER\n\n"
-            f"📌 Current Rate: 1 USDT = {BUY_RATE} PKR\n"
-            f"👤 Account Title (All): Munawar Ali\n\n"
-            f"💳 Deposit Accounts (PKR):\n"
-            f"🔸 JazzCash: {JAZZCASH_NO} ({JAZZCASH_NAME})\n"
-            f"🔸 SadaPay: {SADAPAY_NO} ({SADAPAY_NAME})\n\n"
-            f"👇 Instructions:\n"
-            f"1. Upar diye gaye kisi bhi account par payment send karein.\n"
-            f"2. Niche '✅ Payment Done (Send Screenshot)' button par click karein."
+            f"📌 Current Rate: 1 USDT = {BUY_RATE} PKR\n\n"
+            f"👇 Meharbani karke likhein ke aapko **kitni USDT buy karni hai?**\n"
+            f"(Misal ke tor par: `10` ya `50` ya `100` likh kar send karein)"
         )
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        markup.add(types.InlineKeyboardButton("✅ Payment Done (Send Screenshot)", callback_data="upload_buy_ss"))
-        markup.add(types.InlineKeyboardButton("❌ Cancel Order", callback_data="cancel_action"))
-        bot.edit_message_text(buy_text, chat_id, call.message.message_id, reply_markup=markup)
-
-    elif call.data == "upload_buy_ss":
-        bot.send_message(chat_id, "📸 Meharbani karke apni Payment ka Screenshot aur apna USDT Wallet Address (BEP20 / TRC20) yahan send karein:", reply_markup=get_cancel_keyboard())
+        bot.edit_message_text(msg, chat_id, call.message.message_id, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
 
     elif call.data == "sell_usdt":
-        user_states[chat_id] = "WAITING_SELL_DETAILS"
-        sell_text = (
+        user_states[chat_id] = {"step": "WAITING_SELL_AMOUNT"}
+        msg = (
             f"💰 SELL USDT ORDER\n\n"
             f"📌 Current Rate: 1 USDT = {SELL_RATE} PKR\n\n"
-            f"🌐 Our Deposit Wallet Addresses:\n"
-            f"🔹 BEP20 (BSC):\n{BSC_BEP20_WALLET}\n\n"
-            f"🔹 TRC20 (Tron):\n{TRX_TRC20_WALLET}\n\n"
-            f"👇 Step 1: Upar diye gaye address par USDT send karein.\n"
-            f"👇 Step 2: Apna receiving account dene ke liye niche '📝 Enter Receiving Details' par click karein."
+            f"👇 Meharbani karke likhein ke aapko **kitni USDT sell karni hai?**\n"
+            f"(Misal ke tor par: `10` ya `50` ya `100` likh kar send karein)"
         )
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        markup.add(types.InlineKeyboardButton("📝 Enter Receiving Details", callback_data="input_sell_info"))
-        markup.add(types.InlineKeyboardButton("❌ Cancel Order", callback_data="cancel_action"))
-        bot.edit_message_text(sell_text, chat_id, call.message.message_id, reply_markup=markup)
-
-    elif call.data == "input_sell_info":
-        info_prompt = (
-            f"📝 Apni Payment Details Likhein:\n\n"
-            f"Meharbani karke message mein apna receiving account batayein:\n"
-            f"• JazzCash / EasyPaisa / SadaPay / NayaPay / UPaisa / Commercial Bank Name\n"
-            f"• Account Number / IBAN\n"
-            f"• Account Title\n\n"
-            f"*(Saari details likh kar sath transfer ka Screenshot bhi bhej dein)*"
-        )
-        bot.send_message(chat_id, info_prompt, reply_markup=get_cancel_keyboard())
+        bot.edit_message_text(msg, chat_id, call.message.message_id, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
 
     elif call.data == "cancel_action":
         user_states.pop(chat_id, None)
@@ -169,16 +140,86 @@ def handle_callbacks(call):
         except Exception:
             pass
 
-# --- Handle User Screenshots & Details ---
+# --- Handle User Input, Amounts & Screenshots ---
 @bot.message_handler(content_types=['photo', 'text'])
-def handle_user_proof(message):
+def handle_user_input(message):
     chat_id = message.chat.id
-    state = user_states.get(chat_id)
+    state_data = user_states.get(chat_id)
 
-    if state in ["WAITING_BUY_PROOF", "WAITING_SELL_DETAILS"]:
+    if not state_data:
+        if message.text and not message.text.startswith('/'):
+            bot.send_message(chat_id, "Main Menu se option select karein:", reply_markup=get_main_keyboard())
+        return
+
+    step = state_data.get("step")
+
+    # 1. Handling Buy Amount Input
+    if step == "WAITING_BUY_AMOUNT":
+        try:
+            usdt_amount = float(message.text.strip())
+            if usdt_amount <= 0:
+                raise ValueError()
+            
+            total_pkr = round(usdt_amount * BUY_RATE, 2)
+            user_states[chat_id] = {
+                "step": "WAITING_BUY_PROOF",
+                "usdt": usdt_amount,
+                "pkr": total_pkr
+            }
+
+            instruction_text = (
+                f"🛒 BUY ORDER DETAILS:\n"
+                f"🔹 USDT Quantity: {usdt_amount} USDT\n"
+                f"💵 Total Payable: **{total_pkr} PKR**\n"
+                f"👤 Account Title (All): Munawar Ali\n\n"
+                f"💳 Deposit Accounts (PKR):\n"
+                f"🔸 JazzCash: `{JAZZCASH_NO}` ({JAZZCASH_NAME})\n"
+                f"🔸 SadaPay: `{SADAPAY_NO}` ({SADAPAY_NAME})\n\n"
+                f"👇 **Instructions:**\n"
+                f"1. Upar diye gaye account par **{total_pkr} PKR** send karein.\n"
+                f"2. Payment ka **Screenshot** aur apna **USDT Wallet Address (BEP20 / TRC20)** yahan bhej dein."
+            )
+            bot.send_message(chat_id, instruction_text, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
+        except ValueError:
+            bot.send_message(chat_id, "⚠️ Barah-e-karam theek amount likhein (Misal ke tor par: `10` ya `25.5`)", reply_markup=get_cancel_keyboard())
+
+    # 2. Handling Sell Amount Input
+    elif step == "WAITING_SELL_AMOUNT":
+        try:
+            usdt_amount = float(message.text.strip())
+            if usdt_amount <= 0:
+                raise ValueError()
+            
+            total_pkr = round(usdt_amount * SELL_RATE, 2)
+            user_states[chat_id] = {
+                "step": "WAITING_SELL_DETAILS",
+                "usdt": usdt_amount,
+                "pkr": total_pkr
+            }
+
+            sell_text = (
+                f"💰 SELL ORDER DETAILS:\n"
+                f"🔹 USDT Quantity: {usdt_amount} USDT\n"
+                f"💵 You Will Receive: **{total_pkr} PKR**\n\n"
+                f"🌐 **Our Deposit Wallet Addresses:**\n"
+                f"🔹 BEP20 (BSC):\n`{BSC_BEP20_WALLET}`\n\n"
+                f"🔹 TRC20 (Tron):\n`{TRX_TRC20_WALLET}`\n\n"
+                f"👇 **Instructions:**\n"
+                f"1. Upar diye gaye address par **{usdt_amount} USDT** transfer karein.\n"
+                f"2. Uske baad apna receiving account (JazzCash/EasyPaisa/Bank) aur transfer ka **Screenshot** yahan bhej dein."
+            )
+            bot.send_message(chat_id, sell_text, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
+        except ValueError:
+            bot.send_message(chat_id, "⚠️ Barah-e-karam theek amount likhein (Misal ke tor par: `10` ya `25.5`)", reply_markup=get_cancel_keyboard())
+
+    # 3. Handling Final Proof
+    elif step in ["WAITING_BUY_PROOF", "WAITING_SELL_DETAILS"]:
+        usdt_amt = state_data.get("usdt", 0)
+        pkr_amt = state_data.get("pkr", 0)
+        order_type = "BUY USDT" if step == "WAITING_BUY_PROOF" else "SELL USDT"
+
         user_name = message.from_user.first_name
         username = f"@{message.from_user.username}" if message.from_user.username else "No Username"
-        order_type = "BUY USDT REQUEST" if state == "WAITING_BUY_PROOF" else "SELL USDT REQUEST"
 
         admin_markup = types.InlineKeyboardMarkup(row_width=2)
         admin_markup.add(
@@ -187,27 +228,25 @@ def handle_user_proof(message):
         )
 
         caption_text = (
-            f"🔔 NEW P2P NOTIFICATION ({order_type})\n\n"
+            f"🔔 NEW P2P ORDER ({order_type})\n\n"
             f"👤 User: {user_name} ({username})\n"
-            f"🆔 User Chat ID: {chat_id}\n"
+            f"🆔 Chat ID: {chat_id}\n"
+            f"📊 Amount: {usdt_amt} USDT\n"
+            f"💵 Total PKR: {pkr_amt} PKR\n"
         )
         if message.text:
-            caption_text += f"\n📝 User Message / Details:\n{message.text}\n"
+            caption_text += f"\n📝 User Details / Wallet:\n{message.text}\n"
 
         photo_id = message.photo[-1].file_id if message.photo else None
 
-        # Directly notify admin
         success = notify_admin(chat_id, caption_text, photo_id=photo_id, markup=admin_markup)
 
         if success:
-            bot.send_message(chat_id, "⏳ Request Submitted Successfully! Aapka screenshot aur details Admin ko bhej di gayi hain. Jald hi verification mukammal ho jayegi.", reply_markup=get_main_keyboard())
+            bot.send_message(chat_id, "⏳ Request Submit Ho Gayi Hai! Aapka screenshot aur details Admin ko bhej di gayi hain. Jald hi verify ho jayega.", reply_markup=get_main_keyboard())
         else:
-            bot.send_message(chat_id, "⚠️ Request submit karne mein masla aaya hai. Barah-e-karam dobara koshish karein.", reply_markup=get_main_keyboard())
+            bot.send_message(chat_id, "⚠️ Request submit karne mein masla aaya hai. Dobara koshish karein.", reply_markup=get_main_keyboard())
 
         user_states.pop(chat_id, None)
-
-    else:
-        bot.send_message(chat_id, "Main Menu se option select karein:", reply_markup=get_main_keyboard())
 
 # --- Bot Runner ---
 if __name__ == "__main__":
@@ -221,4 +260,3 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"P2P Bot Error: {e}")
             time.sleep(5)
-  
