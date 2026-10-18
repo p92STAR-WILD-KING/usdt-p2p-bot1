@@ -8,7 +8,7 @@ from telebot import types
 # ---------------- CONFIGURATION ----------------
 BOT_TOKEN = "8717353251:AAE_FDKyqxSC3RzvJepJTih6H2K8Y3H9Q-Q"
 
-# Aapki Numeric Admin Chat ID
+# Admin Numeric Chat ID
 ADMIN_CHAT_ID = 7218404735  
 ADMIN_USERNAME = "Qayoom_pitafi05"
 
@@ -22,12 +22,13 @@ SADAPAY_NAME = "Munawar Ali"
 BSC_BEP20_WALLET = "0x90a2efbc5799c9d41f134d0ea092be6001181382"
 TRX_TRC20_WALLET = "TFprkhMJS2jtUGQ6kp6GHomUCwAzWjcPFd"
 
-# Updated Exchange Rates (PKR)
+# Exchange Rates (PKR)
 BUY_RATE = 290.22
 SELL_RATE = 281.50
 
 bot = telebot.TeleBot(BOT_TOKEN)
 user_states = {}
+all_users = set()  # Users memory for broadcast
 
 # --- Flask Server (Keep-Alive Guard on Port 10001) ---
 app = Flask(__name__)
@@ -74,6 +75,7 @@ def get_cancel_keyboard():
 # --- Command /start ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
+    all_users.add(message.chat.id)
     welcome_text = (
         f"👋 Welcome to USDT BUY & SELL P2P Exchange!\n\n"
         f"⚡ Instant & Secure USDT Buy / Sell Service.\n"
@@ -84,10 +86,46 @@ def send_welcome(message):
     )
     bot.send_message(message.chat.id, welcome_text, reply_markup=get_main_keyboard())
 
+# --- ADMIN COMMAND: Send Direct Message (/send ChatID Message) ---
+@bot.message_handler(commands=['send'])
+def admin_send_message(message):
+    if message.chat.id != ADMIN_CHAT_ID:
+        return
+
+    try:
+        parts = message.text.split(" ", 2)
+        target_chat_id = int(parts[1])
+        msg_to_send = parts[2]
+
+        bot.send_message(target_chat_id, f"💬 **Admin Msg:**\n{msg_to_send}", parse_mode="Markdown")
+        bot.reply_to(message, f"✅ Message successfully sent to User: `{target_chat_id}`", parse_mode="Markdown")
+    except Exception as e:
+        bot.reply_to(message, "⚠️ Incorrect Format!\n\nUse: `/send CHAT_ID Your message`", parse_mode="Markdown")
+
+# --- ADMIN COMMAND: Broadcast to All Users (/broadcast Message) ---
+@bot.message_handler(commands=['broadcast'])
+def admin_broadcast(message):
+    if message.chat.id != ADMIN_CHAT_ID:
+        return
+
+    try:
+        broadcast_msg = message.text.split(" ", 1)[1]
+        count = 0
+        for uid in list(all_users):
+            try:
+                bot.send_message(uid, f"📢 **ANNOUNCEMENT:**\n\n{broadcast_msg}", parse_mode="Markdown")
+                count += 1
+            except Exception:
+                pass
+        bot.reply_to(message, f"✅ Broadcast sent to {count} active users!")
+    except Exception:
+        bot.reply_to(message, "⚠️ Incorrect Format!\n\nUse: `/broadcast Your Announcement`", parse_mode="Markdown")
+
 # --- Callback Query Handler ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
     chat_id = call.message.chat.id
+    all_users.add(chat_id)
 
     if call.data == "live_rates":
         rates_msg = (
@@ -125,25 +163,50 @@ def handle_callbacks(call):
         bot.send_message(chat_id, "❌ Transaction Cancelled.", reply_markup=get_main_keyboard())
 
     elif call.data.startswith("approve_"):
-        target_user = call.data.split("_")[1]
-        bot.send_message(target_user, "🎉 Order Approved! Aapki transaction successfully verify ho gayi hai. Shukriya!")
         try:
-            bot.edit_message_caption(call.message.caption + "\n\n✅ STATUS: APPROVED BY ADMIN", chat_id, call.message.message_id)
-        except Exception:
-            pass
+            target_user = int(call.data.split("_")[1])
+            bot.answer_callback_query(call.id, "Order Approved Successfully!")
+            bot.send_message(target_user, "🎉 Order Approved! Aapki transaction successfully verify ho gayi hai. Shukriya!")
+            
+            if call.message.photo:
+                bot.edit_message_caption(call.message.caption + "\n\n✅ STATUS: APPROVED BY ADMIN", chat_id, call.message.message_id, reply_markup=None)
+            else:
+                bot.edit_message_text(call.message.text + "\n\n✅ STATUS: APPROVED BY ADMIN", chat_id, call.message.message_id, reply_markup=None)
+        except Exception as e:
+            print(f"Approve Error: {e}")
 
     elif call.data.startswith("reject_"):
-        target_user = call.data.split("_")[1]
-        bot.send_message(target_user, "❌ Order Rejected! Aapki payment / screenshot verify nahi ho saki. Direct Support se raabta karein.")
         try:
-            bot.edit_message_caption(call.message.caption + "\n\n❌ STATUS: REJECTED BY ADMIN", chat_id, call.message.message_id)
-        except Exception:
-            pass
+            target_user = int(call.data.split("_")[1])
+            bot.answer_callback_query(call.id, "Order Rejected.")
+            bot.send_message(target_user, "❌ Order Rejected! Aapki payment / screenshot verify nahi ho saki. Direct Support se raabta karein.")
+            
+            if call.message.photo:
+                bot.edit_message_caption(call.message.caption + "\n\n❌ STATUS: REJECTED BY ADMIN", chat_id, call.message.message_id, reply_markup=None)
+            else:
+                bot.edit_message_text(call.message.text + "\n\n❌ STATUS: REJECTED BY ADMIN", chat_id, call.message.message_id, reply_markup=None)
+        except Exception as e:
+            print(f"Reject Error: {e}")
 
-# --- Handle User Input, Amounts & Screenshots ---
+# --- Handle User Input, Admin Replies & Mandatory Screenshots ---
 @bot.message_handler(content_types=['photo', 'text'])
 def handle_user_input(message):
     chat_id = message.chat.id
+    all_users.add(chat_id)
+
+    # 1. Admin Quick Reply Feature (Reply to order notification)
+    if chat_id == ADMIN_CHAT_ID and message.reply_to_message:
+        try:
+            target_text = message.reply_to_message.caption or message.reply_to_message.text or ""
+            if "ID Chat ID:" in target_text or "Chat ID: " in target_text:
+                target_id = int(target_text.split("Chat ID: ")[1].split("\n")[0].strip())
+                bot.send_message(target_id, f"💬 **Admin Msg:**\n{message.text}", parse_mode="Markdown")
+                bot.reply_to(message, f"✅ Message sent to user `{target_id}`!", parse_mode="Markdown")
+                return
+        except Exception as e:
+            bot.reply_to(message, f"⚠️ Reply failed: {e}")
+            return
+
     state_data = user_states.get(chat_id)
 
     if not state_data:
@@ -153,7 +216,7 @@ def handle_user_input(message):
 
     step = state_data.get("step")
 
-    # 1. Handling Buy Amount Input
+    # 2. Handling Buy Amount Input
     if step == "WAITING_BUY_AMOUNT":
         try:
             usdt_amount = float(message.text.strip())
@@ -177,13 +240,13 @@ def handle_user_input(message):
                 f"🔸 SadaPay: `{SADAPAY_NO}` ({SADAPAY_NAME})\n\n"
                 f"👇 **Instructions:**\n"
                 f"1. Upar diye gaye account par **{total_pkr} PKR** send karein.\n"
-                f"2. Payment ka **Screenshot** aur apna **USDT Wallet Address (BEP20 / TRC20)** yahan bhej dein."
+                f"2. Payment ka **SCREENSHOT (PHOTO)** lazmi bhejein sath apna **USDT Wallet Address** likh kar."
             )
             bot.send_message(chat_id, instruction_text, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
         except ValueError:
             bot.send_message(chat_id, "⚠️ Barah-e-karam theek amount likhein (Misal ke tor par: `10` ya `25.5`)", reply_markup=get_cancel_keyboard())
 
-    # 2. Handling Sell Amount Input
+    # 3. Handling Sell Amount Input
     elif step == "WAITING_SELL_AMOUNT":
         try:
             usdt_amount = float(message.text.strip())
@@ -206,14 +269,23 @@ def handle_user_input(message):
                 f"🔹 TRC20 (Tron):\n`{TRX_TRC20_WALLET}`\n\n"
                 f"👇 **Instructions:**\n"
                 f"1. Upar diye gaye address par **{usdt_amount} USDT** transfer karein.\n"
-                f"2. Uske baad apna receiving account (JazzCash/EasyPaisa/Bank) aur transfer ka **Screenshot** yahan bhej dein."
+                f"2. Apna receiving account (JazzCash/EasyPaisa/Bank) likhein aur transfer ka **SCREENSHOT (PHOTO)** lazmi bhej dein."
             )
             bot.send_message(chat_id, sell_text, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
         except ValueError:
             bot.send_message(chat_id, "⚠️ Barah-e-karam theek amount likhein (Misal ke tor par: `10` ya `25.5`)", reply_markup=get_cancel_keyboard())
 
-    # 3. Handling Final Proof
+    # 4. Handling Final Proof with Mandatory Screenshot Check
     elif step in ["WAITING_BUY_PROOF", "WAITING_SELL_DETAILS"]:
+        if not message.photo:
+            bot.send_message(
+                chat_id, 
+                "⚠️ **Screenshot Missing!**\nBarah-e-karam bagair screenshot ke order submit nahi ho sakta. Apni payment/transfer ka **Screenshot (Photo)** lazmi send karein!", 
+                reply_markup=get_cancel_keyboard(), 
+                parse_mode="Markdown"
+            )
+            return
+
         usdt_amt = state_data.get("usdt", 0)
         pkr_amt = state_data.get("pkr", 0)
         order_type = "BUY USDT" if step == "WAITING_BUY_PROOF" else "SELL USDT"
@@ -234,10 +306,12 @@ def handle_user_input(message):
             f"📊 Amount: {usdt_amt} USDT\n"
             f"💵 Total PKR: {pkr_amt} PKR\n"
         )
-        if message.text:
+        if message.caption:
+            caption_text += f"\n📝 User Details / Wallet:\n{message.caption}\n"
+        elif message.text:
             caption_text += f"\n📝 User Details / Wallet:\n{message.text}\n"
 
-        photo_id = message.photo[-1].file_id if message.photo else None
+        photo_id = message.photo[-1].file_id
 
         success = notify_admin(chat_id, caption_text, photo_id=photo_id, markup=admin_markup)
 
@@ -260,3 +334,4 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"P2P Bot Error: {e}")
             time.sleep(5)
+    
