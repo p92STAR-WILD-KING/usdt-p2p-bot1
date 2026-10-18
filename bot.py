@@ -22,13 +22,14 @@ SADAPAY_NAME = "Munawar Ali"
 BSC_BEP20_WALLET = "0x90a2efbc5799c9d41f134d0ea092be6001181382"
 TRX_TRC20_WALLET = "TFprkhMJS2jtUGQ6kp6GHomUCwAzWjcPFd"
 
-# Exchange Rates (PKR)
+# Exchange Rates & Network Fee (PKR & USDT)
 BUY_RATE = 290.22
 SELL_RATE = 281.50
+NETWORK_FEE = 1.5  # 1.5 USDT Network Tax
 
 bot = telebot.TeleBot(BOT_TOKEN)
 user_states = {}
-all_users = set()  # Users memory for broadcast
+all_users = set()
 
 # --- Flask Server (Keep-Alive Guard on Port 10001) ---
 app = Flask(__name__)
@@ -81,12 +82,13 @@ def send_welcome(message):
         f"⚡ Instant & Secure USDT Buy / Sell Service.\n"
         f"👤 Account Title: Munawar Ali\n\n"
         f"🟢 Buy USDT Rate: {BUY_RATE} PKR\n"
-        f"🔴 Sell USDT Rate: {SELL_RATE} PKR\n\n"
+        f"🔴 Sell USDT Rate: {SELL_RATE} PKR\n"
+        f"🌐 Network Withdrawal Tax/Fee: **{NETWORK_FEE} USDT**\n\n"
         f"Neeche diye gaye buttons se apni requirement select karein:"
     )
-    bot.send_message(message.chat.id, welcome_text, reply_markup=get_main_keyboard())
+    bot.send_message(message.chat.id, welcome_text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
-# --- ADMIN COMMAND: Send Direct Message (/send ChatID Message) ---
+# --- ADMIN COMMAND: Send Direct Message ---
 @bot.message_handler(commands=['send'])
 def admin_send_message(message):
     if message.chat.id != ADMIN_CHAT_ID:
@@ -102,7 +104,7 @@ def admin_send_message(message):
     except Exception as e:
         bot.reply_to(message, "⚠️ Incorrect Format!\n\nUse: `/send CHAT_ID Your message`", parse_mode="Markdown")
 
-# --- ADMIN COMMAND: Broadcast to All Users (/broadcast Message) ---
+# --- ADMIN COMMAND: Broadcast ---
 @bot.message_handler(commands=['broadcast'])
 def admin_broadcast(message):
     if message.chat.id != ADMIN_CHAT_ID:
@@ -129,9 +131,10 @@ def handle_callbacks(call):
 
     if call.data == "live_rates":
         rates_msg = (
-            f"📊 CURRENT P2P RATES\n\n"
+            f"📊 CURRENT P2P RATES & FEES\n\n"
             f"🟢 Buy USDT: {BUY_RATE} PKR\n"
             f"🔴 Sell USDT: {SELL_RATE} PKR\n"
+            f"🌐 Network Fee: {NETWORK_FEE} USDT\n"
             f"👤 Account Title: Munawar Ali\n\n"
             f"✨ Fast & Instant Transactions!"
         )
@@ -142,9 +145,10 @@ def handle_callbacks(call):
         user_states[chat_id] = {"step": "WAITING_BUY_AMOUNT"}
         msg = (
             f"💵 BUY USDT ORDER\n\n"
-            f"📌 Current Rate: 1 USDT = {BUY_RATE} PKR\n\n"
+            f"📌 Current Rate: 1 USDT = {BUY_RATE} PKR\n"
+            f"⚠️ Network Withdrawal Tax: **{NETWORK_FEE} USDT**\n\n"
             f"👇 Meharbani karke likhein ke aapko **kitni USDT buy karni hai?**\n"
-            f"(Misal ke tor par: `10` ya `50` ya `100` likh kar send karein)"
+            f"(Misal: `10` ya `20` likh kar send karein)"
         )
         bot.edit_message_text(msg, chat_id, call.message.message_id, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
 
@@ -153,8 +157,8 @@ def handle_callbacks(call):
         msg = (
             f"💰 SELL USDT ORDER\n\n"
             f"📌 Current Rate: 1 USDT = {SELL_RATE} PKR\n\n"
-            f"👇 Meharbani karke likhein ke aapko **kitni USDT sell karni hai?**\n"
-            f"(Misal ke tor par: `10` ya `50` ya `100` likh kar send karein)"
+            f"👇 Meharbani karke likhein ke aap **kitni USDT sell karna chahte hain?**\n"
+            f"(Misal: `10` ya `50` likh kar send karein)"
         )
         bot.edit_message_text(msg, chat_id, call.message.message_id, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
 
@@ -184,7 +188,7 @@ def handle_callbacks(call):
             if call.message.photo:
                 bot.edit_message_caption(call.message.caption + "\n\n❌ STATUS: REJECTED BY ADMIN", chat_id, call.message.message_id, reply_markup=None)
             else:
-                bot.edit_message_text(call.message.text + "\n\n❌ STATUS: REJECTED BY ADMIN", chat_id, call.message.message_id, reply_markup=None)
+                bot.edit_message_text(call.message.text + "\n\n✅ STATUS: REJECTED BY ADMIN", chat_id, call.message.message_id, reply_markup=None)
         except Exception as e:
             print(f"Reject Error: {e}")
 
@@ -194,11 +198,11 @@ def handle_user_input(message):
     chat_id = message.chat.id
     all_users.add(chat_id)
 
-    # 1. Admin Quick Reply Feature (Reply to order notification)
+    # Admin Quick Reply Feature
     if chat_id == ADMIN_CHAT_ID and message.reply_to_message:
         try:
             target_text = message.reply_to_message.caption or message.reply_to_message.text or ""
-            if "ID Chat ID:" in target_text or "Chat ID: " in target_text:
+            if "Chat ID:" in target_text:
                 target_id = int(target_text.split("Chat ID: ")[1].split("\n")[0].strip())
                 bot.send_message(target_id, f"💬 **Admin Msg:**\n{message.text}", parse_mode="Markdown")
                 bot.reply_to(message, f"✅ Message sent to user `{target_id}`!", parse_mode="Markdown")
@@ -216,71 +220,78 @@ def handle_user_input(message):
 
     step = state_data.get("step")
 
-    # 2. Handling Buy Amount Input
+    # 1. Handling Buy Amount Input
     if step == "WAITING_BUY_AMOUNT":
         try:
-            usdt_amount = float(message.text.strip())
-            if usdt_amount <= 0:
+            entered_usdt = float(message.text.strip())
+            if entered_usdt <= 0:
                 raise ValueError()
+
+            received_usdt = round(max(0, entered_usdt - NETWORK_FEE), 2)
+            total_pkr = round(entered_usdt * BUY_RATE, 2)
             
-            total_pkr = round(usdt_amount * BUY_RATE, 2)
             user_states[chat_id] = {
                 "step": "WAITING_BUY_PROOF",
-                "usdt": usdt_amount,
+                "usdt": entered_usdt,
+                "received_usdt": received_usdt,
                 "pkr": total_pkr
             }
 
             instruction_text = (
                 f"🛒 BUY ORDER DETAILS:\n"
-                f"🔹 USDT Quantity: {usdt_amount} USDT\n"
-                f"💵 Total Payable: **{total_pkr} PKR**\n"
-                f"👤 Account Title (All): Munawar Ali\n\n"
-                f"💳 Deposit Accounts (PKR):\n"
-                f"🔸 JazzCash: `{JAZZCASH_NO}` ({JAZZCASH_NAME})\n"
-                f"🔸 SadaPay: `{SADAPAY_NO}` ({SADAPAY_NAME})\n\n"
-                f"👇 **Instructions:**\n"
+                f"🔹 Total Ordered: {entered_usdt} USDT\n"
+                f"🌐 Network Fee: -{NETWORK_FEE} USDT\n"
+                f"✅ **Aapko Wallet Mein Milenge:** **{received_usdt} USDT**\n"
+                f"💵 **Total Payable:** **{total_pkr} PKR**\n\n"
+                f"👤 Account Title: Munawar Ali\n"
+                f"💳 JazzCash: `{JAZZCASH_NO}`\n"
+                f"💳 SadaPay: `{SADAPAY_NO}`\n\n"
+                f"👇 **STRICT INSTRUCTION:**\n"
                 f"1. Upar diye gaye account par **{total_pkr} PKR** send karein.\n"
-                f"2. Payment ka **SCREENSHOT (PHOTO)** lazmi bhejein sath apna **USDT Wallet Address** likh kar."
+                f"2. **AGLA STEP:** Apni payment ka **SCREENSHOT (PHOTO)** lazmi bhejein sath apna **USDT Wallet Address** likh kar. Bagair screenshot ke order submit nahi hoga!"
             )
             bot.send_message(chat_id, instruction_text, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
         except ValueError:
-            bot.send_message(chat_id, "⚠️ Barah-e-karam theek amount likhein (Misal ke tor par: `10` ya `25.5`)", reply_markup=get_cancel_keyboard())
+            bot.send_message(chat_id, "⚠️ Barah-e-karam theek amount likhein (Misal: `10` ya `20`)", reply_markup=get_cancel_keyboard())
 
-    # 3. Handling Sell Amount Input
+    # 2. Handling Sell Amount Input
     elif step == "WAITING_SELL_AMOUNT":
         try:
-            usdt_amount = float(message.text.strip())
-            if usdt_amount <= 0:
+            entered_usdt = float(message.text.strip())
+            if entered_usdt <= 0:
                 raise ValueError()
+
+            total_pkr = round(entered_usdt * SELL_RATE, 2)
             
-            total_pkr = round(usdt_amount * SELL_RATE, 2)
             user_states[chat_id] = {
                 "step": "WAITING_SELL_DETAILS",
-                "usdt": usdt_amount,
+                "usdt": entered_usdt,
                 "pkr": total_pkr
             }
 
             sell_text = (
                 f"💰 SELL ORDER DETAILS:\n"
-                f"🔹 USDT Quantity: {usdt_amount} USDT\n"
-                f"💵 You Will Receive: **{total_pkr} PKR**\n\n"
+                f"🔹 Transfer Amount: {entered_usdt} USDT\n"
+                f"💵 **Aapko Milenge:** **{total_pkr} PKR**\n\n"
                 f"🌐 **Our Deposit Wallet Addresses:**\n"
                 f"🔹 BEP20 (BSC):\n`{BSC_BEP20_WALLET}`\n\n"
                 f"🔹 TRC20 (Tron):\n`{TRX_TRC20_WALLET}`\n\n"
-                f"👇 **Instructions:**\n"
-                f"1. Upar diye gaye address par **{usdt_amount} USDT** transfer karein.\n"
-                f"2. Apna receiving account (JazzCash/EasyPaisa/Bank) likhein aur transfer ka **SCREENSHOT (PHOTO)** lazmi bhej dein."
+                f"👇 **STRICT INSTRUCTION:**\n"
+                f"1. Upar diye gaye address par **{entered_usdt} USDT** transfer karein.\n"
+                f"2. **AGLA STEP:** Apna receiving account (JazzCash/EasyPaisa/Bank) likhein aur transfer ka **SCREENSHOT (PHOTO)** lazmi bhej dein. Bagair screenshot ke order forward nahi hoga!"
             )
             bot.send_message(chat_id, sell_text, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
         except ValueError:
-            bot.send_message(chat_id, "⚠️ Barah-e-karam theek amount likhein (Misal ke tor par: `10` ya `25.5`)", reply_markup=get_cancel_keyboard())
+            bot.send_message(chat_id, "⚠️ Barah-e-karam theek amount likhein (Misal: `10` ya `25.5`)", reply_markup=get_cancel_keyboard())
 
-    # 4. Handling Final Proof with Mandatory Screenshot Check
+    # 3. STRICT CHECK: Handling Final Proof (Mandatory Photo Required)
     elif step in ["WAITING_BUY_PROOF", "WAITING_SELL_DETAILS"]:
         if not message.photo:
             bot.send_message(
                 chat_id, 
-                "⚠️ **Screenshot Missing!**\nBarah-e-karam bagair screenshot ke order submit nahi ho sakta. Apni payment/transfer ka **Screenshot (Photo)** lazmi send karein!", 
+                "⚠️ **SCREENSHOT LAZMI HAI!**\n\n"
+                "Aapne abhi tak payment ya transfer ka **Screenshot (Photo)** upload nahi kiya.\n"
+                "Bagair screenshot ke order aage submit nahi ho sakta. Barah-e-karam apna screenshot bhejein!", 
                 reply_markup=get_cancel_keyboard(), 
                 parse_mode="Markdown"
             )
@@ -304,8 +315,14 @@ def handle_user_input(message):
             f"👤 User: {user_name} ({username})\n"
             f"🆔 Chat ID: {chat_id}\n"
             f"📊 Amount: {usdt_amt} USDT\n"
-            f"💵 Total PKR: {pkr_amt} PKR\n"
         )
+        
+        if step == "WAITING_BUY_PROOF":
+            net_usdt = state_data.get("received_usdt", 0)
+            caption_text += f"🌐 Send User: {net_usdt} USDT (After {NETWORK_FEE} Fee)\n"
+
+        caption_text += f"💵 Total PKR: {pkr_amt} PKR\n"
+
         if message.caption:
             caption_text += f"\n📝 User Details / Wallet:\n{message.caption}\n"
         elif message.text:
